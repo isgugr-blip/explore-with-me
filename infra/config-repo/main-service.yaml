@@ -1,5 +1,5 @@
-client:
-  url: http://stat-server
+stat-client:
+  service-id: stat-server
 server:
   port: 0
   forward-headers-strategy: native

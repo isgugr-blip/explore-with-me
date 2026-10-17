@@ -2,12 +2,16 @@ package ru.practicum.stat.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.SneakyThrows;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.test.autoconfigure.web.client.RestClientTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.cloud.client.DefaultServiceInstance;
+import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -20,10 +24,11 @@ import java.util.List;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
-@RestClientTest(properties = "client.url=http://localhost:9090")
+@RestClientTest(properties = "stat-client.service-id=" + StatClientTest.SERVICE_ID)
 @Import(StatClientAutoConfiguration.class)
 class StatClientTest {
 
@@ -41,7 +46,17 @@ class StatClientTest {
     @Autowired
     private MockRestServiceServer mockServer;
 
+    @MockBean
+    private DiscoveryClient discoveryClient;
+
+    static final String SERVICE_ID = "stat-server";
     private static final String BASE_URL = "http://localhost:9090";
+
+    @BeforeEach
+    void setUp() {
+        when(discoveryClient.getInstances(SERVICE_ID))
+                .thenReturn(List.of(new DefaultServiceInstance("stat-server-1", SERVICE_ID, "localhost", 9090, false)));
+    }
 
     @Test
     @SneakyThrows
@@ -108,6 +123,25 @@ class StatClientTest {
         mockServer.expect(requestTo(startsWith(BASE_URL + "/stats")))
                 .andRespond(withServerError());
 
+        List<ViewStats> response = statClient.getViewStats(request);
+
+        assertThat(response, empty());
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Не отправлять запросы и вернуть пустой список, если сервис статистики не найден в реестре.")
+    void shouldNotFail_whenStatServerIsNotRegistered() {
+        when(discoveryClient.getInstances(SERVICE_ID)).thenReturn(List.of());
+        StatsRequest request = new StatsRequest(
+                "2020-05-05 00:00:00",
+                "2035-05-05 00:00:00",
+                List.of("/events/1"),
+                true
+        );
+
+        statClient.hit(new EndpointHit(1L, "ewm-main", "/events/1", "192.168.1.1", "2026-06-18 10:00:00"));
         List<ViewStats> response = statClient.getViewStats(request);
 
         assertThat(response, empty());
